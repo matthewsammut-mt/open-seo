@@ -11,6 +11,8 @@ import { z } from "zod";
 import {
   emailAccessGate,
   HOSTED_PROD_STAGE,
+  readAllowedEmailDomains,
+  readAllowedEmails,
   readWorkersSubdomain,
   requireAllowedEmails,
   workerName,
@@ -172,6 +174,7 @@ const resolveSelfHostAccess = (
   stage: string,
   provision: boolean,
   workersSubdomain: string,
+  customDomain: string,
 ) =>
   Effect.gen(function* () {
     let teamDomain = yield* optionalVar("TEAM_DOMAIN");
@@ -238,16 +241,27 @@ const resolveSelfHostAccess = (
     }
 
     if (!policyAud) {
-      const allowedEmails = yield* requireAllowedEmails(
-        "Set ACCESS_ALLOWED_EMAILS to the comma-separated emails allowed through Cloudflare Access — or set TEAM_DOMAIN and POLICY_AUD to manage the Access application yourself.",
-      );
+      // Either list is enough on its own; an Access application accepts a
+      // single hostname, so SELFHOST_DOMAIN (when set) is what gets gated —
+      // the workers.dev URL is switched off alongside it so the app is never
+      // reachable through an ungated hostname.
+      const allowedEmails = yield* readAllowedEmails();
+      const allowedEmailDomains = yield* readAllowedEmailDomains();
+      if (allowedEmails.length === 0 && allowedEmailDomains.length === 0) {
+        return yield* Effect.die(
+          new Error(
+            "Set ACCESS_ALLOWED_EMAILS (comma-separated addresses) and/or ACCESS_ALLOWED_EMAIL_DOMAINS (comma-separated email domains) to say who may pass Cloudflare Access — or set TEAM_DOMAIN and POLICY_AUD to manage the Access application yourself.",
+          ),
+        );
+      }
       const application = yield* emailAccessGate({
         policyId: "SelfHostAllowUsers",
         applicationId: "SelfHostAccess",
         policyName: `open-seo ${stage} self-host users`,
         applicationName: `open-seo ${stage}`,
-        domain: `${workerName(stage)}.${subdomain}`,
+        domain: customDomain || `${workerName(stage)}.${subdomain}`,
         emails: allowedEmails,
+        emailDomains: allowedEmailDomains,
       });
       policyAud = application.aud;
     }
@@ -345,16 +359,55 @@ export default Alchemy.Stack(
       authUrl = "";
     }
 
+    // Optional vanity hostname for a self-host deploy (e.g. seo.example.com).
+    // SELFHOST_ZONE_ID is required alongside it: alchemy's own zone inference
+    // lists zones unpaginated, so on an account with more than 50 zones it
+    // reports "Ensure the parent zone exists" for a zone that plainly does.
+    const selfhostDomain = yield* optionalVar("SELFHOST_DOMAIN");
+    const selfhostZoneId = yield* optionalVar("SELFHOST_ZONE_ID");
+    if (selfhostDomain && !selfhostZoneId) {
+      return yield* Effect.die(
+        new Error(
+          "SELFHOST_DOMAIN needs SELFHOST_ZONE_ID too — copy the zone's ID from the Cloudflare dashboard (domain → Overview → API section).",
+        ),
+      );
+    }
+    // Switching the workers.dev URL off is deliberately its own flag. An Access
+    // application gates exactly ONE hostname, so a rollout that attaches the
+    // vanity hostname and moves the gate in a single deploy leaves the
+    // workers.dev URL serving ungated if the Worker step fails after the Access
+    // step succeeds. Disabling workers.dev first makes the intermediate state
+    // unreachable (fail closed) instead of wide open.
+    const disableWorkersDev =
+      (yield* optionalVar("SELFHOST_DISABLE_WORKERS_DEV")) === "1";
+
     const access = yield* resolveSelfHostAccess(
       stage,
       authMode === "cloudflare_access" && !prod,
       workersSubdomain,
+      selfhostDomain,
     );
 
     const app = yield* Cloudflare.Worker("open-seo", {
       name: workerName(stage),
       // Prod serves the real domains; the zone is inferred from the hostname.
       domain: prod ? ["app.openseo.so", "www.app.openseo.so"] : undefined,
+      // Self-host vanity hostname goes through an explicit zone-scoped route
+      // rather than `domain`, which would trigger the broken zone inference.
+      // A route needs the DNS record to exist already (unlike `domain`, which
+      // creates one) — a proxied placeholder record is enough.
+      ...(!prod && selfhostDomain
+        ? {
+            routes: [
+              { pattern: `${selfhostDomain}/*`, zoneId: selfhostZoneId },
+            ],
+          }
+        : {}),
+      // `url` is the documented workers.dev toggle; `subdomain.enabled` alone
+      // does not switch the hostname off.
+      ...(!prod && disableWorkersDev
+        ? { url: false, subdomain: { enabled: false } }
+        : {}),
       // Prebuilt worker from `vite build` (@cloudflare/vite-plugin). The entry
       // exports the DO + WorkflowEntrypoint classes (re-exported by
       // src/server.ts), which `bundle: false` requires. Sibling chunks under

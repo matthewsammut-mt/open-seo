@@ -42,15 +42,35 @@ export const readWorkersSubdomain = ({ required }: { required: boolean }) =>
     );
   });
 
+const parseList = (raw: string) =>
+  raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+/** Reads ACCESS_ALLOWED_EMAILS. Empty is allowed — callers decide. */
+export const readAllowedEmails = () =>
+  Config.string("ACCESS_ALLOWED_EMAILS").pipe(
+    Config.withDefault(""),
+    Config.map(parseList),
+  );
+
+/**
+ * Reads ACCESS_ALLOWED_EMAIL_DOMAINS — whole email domains (e.g.
+ * `9hdigital.com`) allowed through the gate, so a colleague joining or leaving
+ * needs no redeploy. Individual ACCESS_ALLOWED_EMAILS entries are additive,
+ * which is how an address outside the company domain still gets in.
+ */
+export const readAllowedEmailDomains = () =>
+  Config.string("ACCESS_ALLOWED_EMAIL_DOMAINS").pipe(
+    Config.withDefault(""),
+    Config.map(parseList),
+  );
+
 /** Reads ACCESS_ALLOWED_EMAILS; dies with `remedy` when none are set. */
 export const requireAllowedEmails = (remedy: string) =>
   Effect.gen(function* () {
-    const emails = (yield* Config.string("ACCESS_ALLOWED_EMAILS").pipe(
-      Config.withDefault(""),
-    ))
-      .split(",")
-      .map((email) => email.trim())
-      .filter(Boolean);
+    const emails = yield* readAllowedEmails();
     if (emails.length === 0) {
       return yield* Effect.die(new Error(remedy));
     }
@@ -65,12 +85,18 @@ export const emailAccessGate = (options: {
   applicationName: string;
   domain: string;
   emails: string[];
+  emailDomains?: string[];
 }) =>
   Effect.gen(function* () {
     const allow = yield* Cloudflare.Access.Policy(options.policyId, {
       name: options.policyName,
       decision: "allow",
-      include: options.emails.map((email) => ({ email: { email } })),
+      include: [
+        ...options.emails.map((email) => ({ email: { email } })),
+        ...(options.emailDomains ?? []).map((domain) => ({
+          emailDomain: { domain },
+        })),
+      ],
     });
     return yield* Cloudflare.Access.Application(options.applicationId, {
       type: "self_hosted",
