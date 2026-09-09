@@ -23,11 +23,8 @@ import {
   type PageRow,
   type PagesFilterValues,
 } from "@/client/features/domain/types";
-import { pagesToTable } from "@/client/features/domain/utils";
+import { useDomainPagesExport } from "@/client/features/domain/hooks/useDomainPagesExport";
 import type { DomainOverviewRouteState } from "@/client/features/domain/domainRouteState";
-import { buildCsv, downloadCsv } from "@/client/lib/csv";
-import { exportTableToSheets } from "@/client/lib/exportToSheets";
-import { captureClientEvent } from "@/client/lib/posthog";
 import {
   MAX_DATAFORSEO_FILTER_CONDITIONS,
   type DomainSearchParams,
@@ -114,7 +111,8 @@ export function PagesTab({
     ? EMPTY_DOMAIN_FILTERS
     : restoredFilters;
 
-  const query = useDomainPagesQuery({
+  // Shared with the export hook so a CSV can't disagree with the table.
+  const queryInput = {
     projectId,
     domain: target,
     scope,
@@ -125,7 +123,8 @@ export function PagesTab({
     sortOrder: routeState.order,
     appliedFilters: appliedPagesFilters,
     enabled: Boolean(target),
-  });
+  };
+  const query = useDomainPagesQuery(queryInput);
 
   const rows = query.data?.pages ?? EMPTY_PAGES_ROWS;
   const totalCount = query.data?.totalCount ?? null;
@@ -168,31 +167,16 @@ export function PagesTab({
     [restoredFilters],
   );
 
-  const exportTable = useMemo(() => pagesToTable(rows), [rows]);
   const fileNamePrefix = target.replaceAll("/", "-");
+  const {
+    exporting,
+    exportToSheets: handleExportToSheets,
+    download: handleDownload,
+  } = useDomainPagesExport({ input: queryInput, fileNamePrefix });
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(JSON.stringify(rows, null, 2));
     toast.success("Copied data");
-  };
-  const handleExportToSheets = () => {
-    void exportTableToSheets({
-      headers: exportTable.headers,
-      rows: exportTable.rows,
-      feature: "domain_overview",
-    });
-  };
-  const handleDownload = (extension: "csv" | "xls") => {
-    downloadCsv(
-      `${fileNamePrefix}-pages.${extension}`,
-      buildCsv(exportTable.headers, exportTable.rows),
-    );
-    if (extension === "csv") {
-      captureClientEvent("data:export", {
-        source_feature: "domain_overview",
-        result_count: rows.length,
-      });
-    }
   };
 
   return (
@@ -217,7 +201,7 @@ export function PagesTab({
         showTableLoading={showTableLoading}
         exportActions={[
           {
-            label: "Export to Sheets",
+            label: exporting ? "Exporting…" : "Export to Sheets",
             icon: <Sheet className="size-4" />,
             onClick: handleExportToSheets,
           },
@@ -227,12 +211,12 @@ export function PagesTab({
             onClick: handleCopy,
           },
           {
-            label: "Download CSV",
+            label: exporting ? "Exporting…" : "Download CSV",
             icon: <Download className="size-4" />,
             onClick: () => handleDownload("csv"),
           },
           {
-            label: "Download Excel",
+            label: exporting ? "Exporting…" : "Download Excel",
             icon: <FileSpreadsheet className="size-4" />,
             onClick: () => handleDownload("xls"),
           },

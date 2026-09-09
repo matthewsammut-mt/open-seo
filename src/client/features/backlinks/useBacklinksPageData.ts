@@ -10,6 +10,9 @@ import {
 } from "@/client/lib/error-messages";
 import {
   getBacklinksOverview,
+  exportBacklinksReferringDomains,
+  exportBacklinksRows,
+  exportBacklinksTopPages,
   getBacklinksReferringDomains,
   getBacklinksRows,
   getBacklinksTopPages,
@@ -27,6 +30,7 @@ import {
   toTopPagesFiltersPayload,
 } from "./backlinksFilterTypes";
 import type { BacklinksFiltersState } from "./useBacklinksFilters";
+import type { BacklinksTabRows } from "./backlinksPageTypes";
 import { toScopeSearchParam } from "@/shared/researchScope";
 
 type UseBacklinksPageDataArgs = {
@@ -211,8 +215,71 @@ export function useBacklinksPageData({
     "Could not load this tab.",
   );
 
+  /**
+   * Every row behind the active tab, for CSV/Sheets export rather than the
+   * page on screen. Sends the same payload as that tab's query above, so the
+   * file matches the table's scope, filters and sort; the server function
+   * ignores page/pageSize and walks the pages itself.
+   */
+  const exportActiveTabRows = async (): Promise<{
+    rows: BacklinksTabRows;
+    totalCount: number | null;
+    truncated: boolean;
+  }> => {
+    const empty: BacklinksTabRows = {
+      backlinks: [],
+      referringDomains: [],
+      topPages: [],
+    };
+    if (tab === "domains") {
+      const result = await exportBacklinksReferringDomains({
+        data: {
+          ...pageInputBase,
+          sortField: domainsSort.field,
+          sortOrder: domainsSort.order,
+          filters: domainsFilters,
+        },
+      });
+      return {
+        rows: { ...empty, referringDomains: result.rows },
+        totalCount: result.totalCount,
+        truncated: result.truncated,
+      };
+    }
+    if (tab === "pages") {
+      const result = await exportBacklinksTopPages({
+        data: {
+          ...pageInputBase,
+          sortField: pagesSort.field,
+          sortOrder: pagesSort.order,
+          filters: pagesFilters,
+        },
+      });
+      return {
+        rows: { ...empty, topPages: result.rows },
+        totalCount: result.totalCount,
+        truncated: result.truncated,
+      };
+    }
+    const result = await exportBacklinksRows({
+      data: {
+        ...pageInputBase,
+        sortField: rowsSort.field,
+        sortOrder: rowsSort.order,
+        filters: rowsFilters,
+        mode: rowsMode,
+      },
+    });
+    return {
+      rows: { ...empty, backlinks: result.rows },
+      totalCount: result.totalCount,
+      truncated: result.truncated,
+    };
+  };
+
   return {
     activeTabErrorMessage,
+    exportActiveTabRows,
     activeTabQuery,
     overviewErrorMessage,
     overviewQuery,

@@ -9,7 +9,7 @@ import type {
   SortOrder,
 } from "@/client/features/domain/types";
 
-type DomainKeywordsQueryInput = {
+export type DomainKeywordsQueryInput = {
   projectId: string;
   domain: string;
   scope: ResearchScope;
@@ -29,7 +29,24 @@ function toNumberOrUndefined(value: string): number | undefined {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function toFiltersPayload(
+export function domainKeywordsPayload(
+  input: DomainKeywordsQueryInput,
+  filters: ReturnType<typeof toFiltersPayload>,
+) {
+  return {
+    projectId: input.projectId,
+    domain: input.domain,
+    scope: input.scope,
+    locationCode: input.locationCode,
+    page: input.page,
+    pageSize: input.pageSize,
+    sortMode: input.sortMode,
+    sortOrder: input.sortOrder,
+    filters,
+  };
+}
+
+export function toFiltersPayload(
   filters: DomainFilterValues,
 ): Record<string, unknown> {
   return {
@@ -91,17 +108,7 @@ export function useDomainKeywordsQuery(input: DomainKeywordsQueryInput) {
     queryKey,
     queryFn: () =>
       getDomainKeywordsPage({
-        data: {
-          projectId: input.projectId,
-          domain: input.domain,
-          scope: input.scope,
-          locationCode: input.locationCode,
-          page: input.page,
-          pageSize: input.pageSize,
-          sortMode: input.sortMode,
-          sortOrder: input.sortOrder,
-          filters: filtersPayload,
-        },
+        data: domainKeywordsPayload(input, filtersPayload),
       }),
     staleTime: 60_000,
   });

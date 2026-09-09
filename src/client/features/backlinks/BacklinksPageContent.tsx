@@ -26,6 +26,12 @@ import {
 
 type BacklinksBodyProps = {
   projectId: string;
+  /** Fetches every row of the active tab for export, not just the page shown. */
+  exportActiveTabRows: () => Promise<{
+    rows: BacklinksTabRows;
+    totalCount: number | null;
+    truncated: boolean;
+  }>;
   history: BacklinksSearchHistoryItem[];
   historyLoaded: boolean;
   overviewData: BacklinksOverviewData | undefined;
@@ -59,6 +65,7 @@ type BacklinksBodyProps = {
 
 export function BacklinksBody({
   projectId,
+  exportActiveTabRows,
   history,
   historyLoaded,
   overviewData,
@@ -154,6 +161,7 @@ export function BacklinksBody({
       />
       <BacklinksResultsCard
         projectId={projectId}
+        exportActiveTabRows={exportActiveTabRows}
         activeTab={searchState.tab}
         scope={searchState.scope}
         tabRows={tabRows}

@@ -103,6 +103,7 @@ export function BacklinksPage({
   const {
     activeTabErrorMessage,
     activeTabQuery,
+    exportActiveTabRows,
     overviewErrorMessage,
     overviewQuery,
     referringDomainsQuery,
@@ -202,6 +203,7 @@ export function BacklinksPage({
 
         <BacklinksBody
           projectId={projectId}
+          exportActiveTabRows={exportActiveTabRows}
           history={history}
           historyLoaded={historyLoaded}
           overviewData={overviewQuery.data}

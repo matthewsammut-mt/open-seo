@@ -14,30 +14,42 @@ import { exportBacklinksTabCsv } from "./export";
 export function BacklinksExportMenu({
   activeTab,
   exportTarget,
-  headers,
   rows,
+  loadExportTable,
 }: {
   activeTab: BacklinksSearchState["tab"];
   exportTarget: string;
-  headers: string[];
+  /** The visible page — only used to decide whether exporting is possible. */
   rows: CsvValue[][];
+  /**
+   * Fetches the whole filtered result set. `rows` stays the visible page and is
+   * only used to decide whether exporting is possible at all.
+   */
+  loadExportTable: () => Promise<{ headers: string[]; rows: CsvValue[][] }>;
 }) {
-  const [isExportingSheets, setIsExportingSheets] = useState(false);
-  const canExport = rows.length > 0 && !isExportingSheets;
+  const [isExporting, setIsExporting] = useState(false);
+  const canExport = rows.length > 0 && !isExporting;
 
-  const handleExportToSheets = async () => {
+  const runExport = async (
+    use: (table: { headers: string[]; rows: CsvValue[][] }) => unknown,
+  ) => {
     if (!canExport) return;
-    setIsExportingSheets(true);
+    setIsExporting(true);
     try {
-      await exportTableToSheets({
-        headers,
-        rows,
-        feature: `backlinks_${activeTab}`,
-      });
+      await use(await loadExportTable());
     } finally {
-      setIsExportingSheets(false);
+      setIsExporting(false);
     }
   };
+
+  const handleExportToSheets = () =>
+    runExport((table) =>
+      exportTableToSheets({
+        headers: table.headers,
+        rows: table.rows,
+        feature: `backlinks_${activeTab}`,
+      }),
+    );
 
   return (
     <div className="dropdown dropdown-end">
@@ -62,7 +74,7 @@ export function BacklinksExportMenu({
             onClick={() => void handleExportToSheets()}
             disabled={!canExport}
           >
-            {isExportingSheets ? (
+            {isExporting ? (
               <span className="loading loading-spinner loading-xs" />
             ) : (
               <Sheet className="size-4" />
@@ -74,14 +86,16 @@ export function BacklinksExportMenu({
           <button
             type="button"
             onClick={() =>
-              exportBacklinksTabCsv({
-                tab: activeTab,
-                target: exportTarget,
-                headers,
-                rows,
-              })
+              void runExport((table) =>
+                exportBacklinksTabCsv({
+                  tab: activeTab,
+                  target: exportTarget,
+                  headers: table.headers,
+                  rows: table.rows,
+                }),
+              )
             }
-            disabled={rows.length === 0}
+            disabled={!canExport}
           >
             <Download className="size-4" />
             Export CSV

@@ -31,6 +31,7 @@ import {
   type KeywordsFilterValues,
 } from "@/client/features/domain/types";
 import { keywordsToTable } from "@/client/features/domain/utils";
+import { useDomainKeywordsExport } from "@/client/features/domain/hooks/useDomainKeywordsExport";
 import type { DomainOverviewRouteState } from "@/client/features/domain/domainRouteState";
 import { buildCsv, downloadCsv } from "@/client/lib/csv";
 import { exportTableToSheets } from "@/client/lib/exportToSheets";
@@ -123,7 +124,8 @@ export function KeywordsTab({
     ? EMPTY_DOMAIN_FILTERS
     : restoredFilters;
 
-  const query = useDomainKeywordsQuery({
+  // Shared with the export hook so a CSV can't disagree with the table.
+  const queryInput = {
     projectId,
     domain: target,
     scope,
@@ -134,7 +136,8 @@ export function KeywordsTab({
     sortOrder: routeState.order,
     appliedFilters,
     enabled: Boolean(target),
-  });
+  };
+  const query = useDomainKeywordsQuery(queryInput);
 
   const rows = query.data?.keywords ?? EMPTY_KEYWORDS;
   const totalCount = query.data?.totalCount ?? null;
@@ -215,8 +218,12 @@ export function KeywordsTab({
     [restoredFilters],
   );
 
-  const exportTable = useMemo(() => keywordsToTable(rows), [rows]);
   const fileNamePrefix = target.replaceAll("/", "-");
+  const {
+    exporting,
+    exportToSheets: handleExportToSheets,
+    download: handleDownload,
+  } = useDomainKeywordsExport({ input: queryInput, fileNamePrefix });
   const selectedExportTable = useMemo(
     () => keywordsToTable(rows.filter((r) => selectedKeywords.has(r.keyword))),
     [rows, selectedKeywords],
@@ -225,25 +232,6 @@ export function KeywordsTab({
   const handleCopy = async () => {
     await navigator.clipboard.writeText(JSON.stringify(rows, null, 2));
     toast.success("Copied data");
-  };
-  const handleExportToSheets = () => {
-    void exportTableToSheets({
-      headers: exportTable.headers,
-      rows: exportTable.rows,
-      feature: "domain_overview",
-    });
-  };
-  const handleDownload = (extension: "csv" | "xls") => {
-    downloadCsv(
-      `${fileNamePrefix}-keywords.${extension}`,
-      buildCsv(exportTable.headers, exportTable.rows),
-    );
-    if (extension === "csv") {
-      captureClientEvent("data:export", {
-        source_feature: "domain_overview",
-        result_count: rows.length,
-      });
-    }
   };
   const handleExportSelectionToSheets = () => {
     void exportTableToSheets({
@@ -281,12 +269,12 @@ export function KeywordsTab({
             <TableBulkExportMenu
               actions={[
                 {
-                  label: "Export to Sheets",
+                  label: exporting ? "Exporting…" : "Export to Sheets",
                   icon: <Sheet className="size-4" />,
                   onClick: handleExportSelectionToSheets,
                 },
                 {
-                  label: "Download CSV",
+                  label: exporting ? "Exporting…" : "Download CSV",
                   icon: <Download className="size-4" />,
                   onClick: handleDownloadSelectionCsv,
                 },
@@ -316,7 +304,7 @@ export function KeywordsTab({
         showTableLoading={showTableLoading}
         exportActions={[
           {
-            label: "Export to Sheets",
+            label: exporting ? "Exporting…" : "Export to Sheets",
             icon: <Sheet className="size-4" />,
             onClick: handleExportToSheets,
           },
@@ -326,12 +314,12 @@ export function KeywordsTab({
             onClick: handleCopy,
           },
           {
-            label: "Download CSV",
+            label: exporting ? "Exporting…" : "Download CSV",
             icon: <Download className="size-4" />,
             onClick: () => handleDownload("csv"),
           },
           {
-            label: "Download Excel",
+            label: exporting ? "Exporting…" : "Download Excel",
             icon: <FileSpreadsheet className="size-4" />,
             onClick: () => handleDownload("xls"),
           },

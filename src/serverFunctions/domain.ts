@@ -7,6 +7,7 @@ import {
   domainPagesPageRequestSchema,
 } from "@/types/schemas/domain";
 import { DomainService } from "@/server/features/domain/services/DomainService";
+import { collectAllRows, EXPORT_PAGE_SIZE } from "@/server/lib/exportAllRows";
 import { resolveLabsMarket } from "@/shared/keyword-locations";
 
 function shouldUseDomainE2eFixtures() {
@@ -81,4 +82,56 @@ export const getDomainPagesPage = createServerFn({ method: "POST" })
     }
 
     return DomainService.getPagesPage(input, context);
+  });
+
+/**
+ * Every ranked keyword behind the Keywords tab, for CSV/Sheets export, rather
+ * than only the visible page. Reuses the page service so the export matches
+ * the table's scope, filters and sort exactly.
+ */
+export const exportDomainKeywords = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(domainKeywordsPageRequestSchema)
+  .handler(async ({ data, context }) => {
+    const base = {
+      ...data,
+      ...resolveLabsMarket(data, context.project),
+      projectId: context.projectId,
+    };
+    const result = await collectAllRows(async (page) => {
+      const pageResult = await DomainService.getKeywordsPage(
+        { ...base, page, pageSize: EXPORT_PAGE_SIZE },
+        context,
+      );
+      return {
+        rows: pageResult.keywords,
+        hasMore: pageResult.hasMore,
+        totalCount: pageResult.totalCount,
+      };
+    });
+    return { keywords: result.rows, ...result };
+  });
+
+/** Every page behind the Pages tab, for export rather than the visible page. */
+export const exportDomainPages = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(domainPagesPageRequestSchema)
+  .handler(async ({ data, context }) => {
+    const base = {
+      ...data,
+      ...resolveLabsMarket(data, context.project),
+      projectId: context.projectId,
+    };
+    const result = await collectAllRows(async (page) => {
+      const pageResult = await DomainService.getPagesPage(
+        { ...base, page, pageSize: EXPORT_PAGE_SIZE },
+        context,
+      );
+      return {
+        rows: pageResult.pages,
+        hasMore: pageResult.hasMore,
+        totalCount: pageResult.totalCount,
+      };
+    });
+    return { pages: result.rows, ...result };
   });

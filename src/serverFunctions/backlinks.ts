@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { BacklinksService } from "@/server/features/backlinks/services/BacklinksService";
 import { requireProjectContext } from "@/serverFunctions/middleware";
+import { collectAllRows, EXPORT_PAGE_SIZE } from "@/server/lib/exportAllRows";
 import {
   backlinksOverviewInputSchema,
   backlinksRowsPageRequestSchema,
@@ -57,4 +58,48 @@ export const getBacklinksTopPages = createServerFn({
   .validator(topPagesPageRequestSchema)
   .handler(({ data, context }) =>
     BacklinksService.profileTopPagesPage(data, context),
+  );
+
+// Export variants walk every page behind a backlinks tab so CSV/Sheets get the
+// whole filtered set, not just the page on screen. They reuse the same page
+// services (and WEB_SPAM_OPTIONS) so an export can't diverge from the table.
+
+export const exportBacklinksRows = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(backlinksRowsPageRequestSchema)
+  .handler(({ data, context }) =>
+    collectAllRows((page) =>
+      BacklinksService.profileBacklinksPage(
+        { ...data, page, pageSize: EXPORT_PAGE_SIZE },
+        context,
+        WEB_SPAM_OPTIONS,
+      ),
+    ),
+  );
+
+export const exportBacklinksReferringDomains = createServerFn({
+  method: "POST",
+})
+  .middleware(requireProjectContext)
+  .validator(referringDomainsPageRequestSchema)
+  .handler(({ data, context }) =>
+    collectAllRows((page) =>
+      BacklinksService.profileReferringDomainsPage(
+        { ...data, page, pageSize: EXPORT_PAGE_SIZE },
+        context,
+        WEB_SPAM_OPTIONS,
+      ),
+    ),
+  );
+
+export const exportBacklinksTopPages = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .validator(topPagesPageRequestSchema)
+  .handler(({ data, context }) =>
+    collectAllRows((page) =>
+      BacklinksService.profileTopPagesPage(
+        { ...data, page, pageSize: EXPORT_PAGE_SIZE },
+        context,
+      ),
+    ),
   );

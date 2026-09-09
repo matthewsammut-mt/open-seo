@@ -1,5 +1,6 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { SlidersHorizontal } from "lucide-react";
+import { toast } from "sonner";
 import type { OnChangeFn, SortingState } from "@tanstack/react-table";
 import { BacklinksFilterPanel } from "./BacklinksFilterPanel";
 import { BacklinksTable } from "./BacklinksTable";
@@ -40,6 +41,7 @@ const BACKLINKS_RESULTS_TABS: Array<{
 
 export function BacklinksResultsCard({
   projectId,
+  exportActiveTabRows,
   activeTab,
   scope,
   tabRows,
@@ -57,6 +59,11 @@ export function BacklinksResultsCard({
   onTabChange,
   onViewChange,
 }: {
+  exportActiveTabRows: () => Promise<{
+    rows: BacklinksTabRows;
+    totalCount: number | null;
+    truncated: boolean;
+  }>;
   projectId: string;
   activeTab: BacklinksSearchState["tab"];
   scope: ResearchScope;
@@ -92,6 +99,24 @@ export function BacklinksResultsCard({
       buildBacklinksTabExport({ tab: activeTab, rows: tabRows, domainRatings }),
     [activeTab, domainRatings, tabRows],
   );
+  // Exports cover every row the active tab's filters and sort match, so the
+  // file no longer stops at the visible page.
+  const loadExportTable = useCallback(async () => {
+    const result = await exportActiveTabRows();
+    if (result.truncated) {
+      const of = result.totalCount
+        ? ` of ${result.totalCount.toLocaleString()}`
+        : "";
+      toast.warning(
+        `Exported the first rows${of} — narrow the filters to export the rest.`,
+      );
+    }
+    return buildBacklinksTabExport({
+      tab: activeTab,
+      rows: result.rows,
+      domainRatings,
+    });
+  }, [activeTab, domainRatings, exportActiveTabRows]);
   // Domains keyed by both tables that the DR column can enrich. Each table
   // holds the currently loaded page, so this changes as the user paginates.
   const ratableDomains = useMemo(
@@ -135,8 +160,8 @@ export function BacklinksResultsCard({
         <div className="flex flex-wrap items-center gap-2">
           <BacklinksExportMenu
             activeTab={activeTab}
+            loadExportTable={loadExportTable}
             exportTarget={exportTarget}
-            headers={exportTable.headers}
             rows={exportTable.rows}
           />
           {activeTab !== "pages" ? (

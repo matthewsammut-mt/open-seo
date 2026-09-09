@@ -10,7 +10,7 @@ import type {
   SortOrder,
 } from "@/client/features/domain/types";
 
-type DomainPagesQueryInput = {
+export type DomainPagesQueryInput = {
   projectId: string;
   domain: string;
   scope: ResearchScope;
@@ -22,6 +22,25 @@ type DomainPagesQueryInput = {
   appliedFilters: PagesFilterValues;
   enabled: boolean;
 };
+
+/**
+ * The server payload for a pages request. Exported so the CSV/Sheets export
+ * sends identical scope, filters and sort; page/pageSize are ignored by the
+ * export server function, which walks every page itself.
+ */
+export function domainPagesPayload(input: DomainPagesQueryInput) {
+  return {
+    projectId: input.projectId,
+    domain: input.domain,
+    scope: input.scope,
+    locationCode: input.locationCode,
+    page: input.page,
+    pageSize: input.pageSize,
+    sortMode: toPageSortMode(input.sortMode),
+    sortOrder: input.sortOrder,
+    filters: input.appliedFilters,
+  };
+}
 
 export function useDomainPagesQuery(input: DomainPagesQueryInput) {
   const pageSortMode = toPageSortMode(input.sortMode);
@@ -61,20 +80,7 @@ export function useDomainPagesQuery(input: DomainPagesQueryInput) {
   const query = useQuery({
     enabled: input.enabled && Boolean(input.domain),
     queryKey,
-    queryFn: () =>
-      getDomainPagesPage({
-        data: {
-          projectId: input.projectId,
-          domain: input.domain,
-          scope: input.scope,
-          locationCode: input.locationCode,
-          page: input.page,
-          pageSize: input.pageSize,
-          sortMode: pageSortMode,
-          sortOrder: input.sortOrder,
-          filters: input.appliedFilters,
-        },
-      }),
+    queryFn: () => getDomainPagesPage({ data: domainPagesPayload(input) }),
     staleTime: 60_000,
   });
   useEffect(() => {
