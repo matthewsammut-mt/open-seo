@@ -14,7 +14,6 @@ import {
   readAllowedEmailDomains,
   readAllowedEmails,
   readWorkersSubdomain,
-  requireAllowedEmails,
   workerName,
 } from "./alchemy.access.ts";
 

@@ -57,7 +57,7 @@ export const readAllowedEmails = () =>
 
 /**
  * Reads ACCESS_ALLOWED_EMAIL_DOMAINS — whole email domains (e.g.
- * `9hdigital.com`) allowed through the gate, so a colleague joining or leaving
+ * `example.com`) allowed through the gate, so a colleague joining or leaving
  * needs no redeploy. Individual ACCESS_ALLOWED_EMAILS entries are additive,
  * which is how an address outside the company domain still gets in.
  */
