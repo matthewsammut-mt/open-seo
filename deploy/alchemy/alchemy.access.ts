@@ -42,19 +42,31 @@ export const readWorkersSubdomain = ({ required }: { required: boolean }) =>
     );
   });
 
-/** Reads ACCESS_ALLOWED_EMAILS; dies with `remedy` when none are set. */
-export const requireAllowedEmails = (remedy: string) =>
+const readList = (name: string) =>
+  Config.string(name).pipe(
+    Config.withDefault(""),
+    Config.map((raw) =>
+      raw
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    ),
+  );
+
+/**
+ * Reads ACCESS_ALLOWED_EMAILS and ACCESS_ALLOWED_EMAIL_DOMAINS; dies with
+ * `remedy` when both are empty. Addresses and whole email domains (e.g.
+ * `example.com`) are additive — a domain covers everyone who joins or leaves
+ * without a redeploy, and individual addresses let someone outside it in.
+ */
+export const requireAllowedIdentities = (remedy: string) =>
   Effect.gen(function* () {
-    const emails = (yield* Config.string("ACCESS_ALLOWED_EMAILS").pipe(
-      Config.withDefault(""),
-    ))
-      .split(",")
-      .map((email) => email.trim())
-      .filter(Boolean);
-    if (emails.length === 0) {
+    const emails = yield* readList("ACCESS_ALLOWED_EMAILS");
+    const emailDomains = yield* readList("ACCESS_ALLOWED_EMAIL_DOMAINS");
+    if (emails.length === 0 && emailDomains.length === 0) {
       return yield* Effect.die(new Error(remedy));
     }
-    return emails;
+    return { emails, emailDomains };
   });
 
 /** The gate itself: an email allow-policy on a self-hosted Access application. */
@@ -67,6 +79,8 @@ export const emailAccessGate = (options: {
   /** A second hostname (a self-host's CUSTOM_DOMAIN) the same app protects. */
   extraDomain?: string;
   emails: string[];
+  /** Whole email domains allowed through, alongside `emails`. */
+  emailDomains?: string[];
   /** Turn on Access Managed OAuth so MCP clients can sign in. */
   managedOAuth?: boolean;
 }) =>
@@ -74,7 +88,12 @@ export const emailAccessGate = (options: {
     const allow = yield* Cloudflare.Access.Policy(options.policyId, {
       name: options.policyName,
       decision: "allow",
-      include: options.emails.map((email) => ({ email: { email } })),
+      include: [
+        ...options.emails.map((email) => ({ email: { email } })),
+        ...(options.emailDomains ?? []).map((domain) => ({
+          emailDomain: { domain },
+        })),
+      ],
     });
     return yield* Cloudflare.Access.Application(options.applicationId, {
       type: "self_hosted",

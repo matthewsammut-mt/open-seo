@@ -5,7 +5,7 @@ import {
   emailAccessGate,
   previewWildcard,
   readWorkersSubdomain,
-  requireAllowedEmails,
+  requireAllowedIdentities,
 } from "./alchemy.access.ts";
 
 // Persistent account-level security boundary for every ephemeral preview.
@@ -26,7 +26,7 @@ export default Alchemy.Stack(
   },
   Effect.gen(function* () {
     const subdomain = yield* readWorkersSubdomain({ required: true });
-    const allowedEmails = yield* requireAllowedEmails(
+    const allowed = yield* requireAllowedIdentities(
       "Set ACCESS_ALLOWED_EMAILS to the comma-separated preview testers.",
     );
 
@@ -37,7 +37,8 @@ export default Alchemy.Stack(
       policyName: "open-seo preview team",
       applicationName: "open-seo preview environments",
       domain: hostname,
-      emails: allowedEmails,
+      emails: allowed.emails,
+      emailDomains: allowed.emailDomains,
     });
 
     return {
