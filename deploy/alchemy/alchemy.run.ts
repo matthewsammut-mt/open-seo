@@ -13,7 +13,7 @@ import {
   emailAccessGate,
   HOSTED_PROD_STAGE,
   readWorkersSubdomain,
-  requireAllowedEmails,
+  requireAllowedIdentities,
   workerName,
 } from "./alchemy.access.ts";
 
@@ -169,6 +169,61 @@ const readCustomDomain = (prod: boolean) =>
     return domain;
   });
 
+/**
+ * Optional zone id for CUSTOM_DOMAIN. Only needed when alchemy's zone
+ * inference can't find the zone — see the Worker's `domain`/`routes` comment.
+ */
+const readCustomDomainZoneId = () =>
+  Effect.gen(function* () {
+    const zoneId = yield* optionalVar("CUSTOM_DOMAIN_ZONE_ID");
+    if (zoneId && !/^[0-9a-f]{32}$/i.test(zoneId)) {
+      return yield* Effect.die(
+        new Error(
+          "CUSTOM_DOMAIN_ZONE_ID must be a 32-character Cloudflare zone id (Overview → API on the zone).",
+        ),
+      );
+    }
+    return zoneId;
+  });
+
+/**
+ * Which hostnames the app worker answers on.
+ *
+ * `domain` makes alchemy infer the zone from the hostname, and that inference
+ * lists the account's zones unpaginated (alchemy's WorkerProvider calls
+ * `listZones({})`), so on an account with more zones than one page it dies
+ * with "Ensure the parent zone exists". CUSTOM_DOMAIN_ZONE_ID is the escape
+ * hatch: name the zone and the hostname is attached as an explicit route
+ * instead, needing no lookup.
+ *
+ * The deploy-created Access application gates the workers.dev hostname and
+ * CUSTOM_DOMAIN alike, so leaving the workers.dev URL on is safe and gives a
+ * fallback way in. DISABLE_WORKERS_DEV_URL=1 turns it off for a self-host that
+ * wants exactly one.
+ */
+const workerHostnames = (options: {
+  prod: boolean;
+  customDomain: string;
+  customDomainZoneId: string;
+  disableWorkersDevUrl: boolean;
+}) => {
+  if (options.prod) {
+    return { domain: ["app.openseo.so", "www.app.openseo.so"] };
+  }
+  const { customDomain, customDomainZoneId } = options;
+  return {
+    domain: customDomain && !customDomainZoneId ? customDomain : undefined,
+    ...(customDomain && customDomainZoneId
+      ? {
+          routes: [
+            { pattern: `${customDomain}/*`, zoneId: customDomainZoneId },
+          ],
+        }
+      : {}),
+    ...(options.disableWorkersDevUrl ? { url: false } : {}),
+  };
+};
+
 const optionalSecret = (name: string) =>
   Config.redacted(name).pipe(Config.withDefault(Redacted.make("")));
 
@@ -272,8 +327,8 @@ const resolveSelfHostAccess = (
     }
 
     if (!policyAud) {
-      const allowedEmails = yield* requireAllowedEmails(
-        "Set ACCESS_ALLOWED_EMAILS to the comma-separated emails allowed through Cloudflare Access — or set TEAM_DOMAIN and POLICY_AUD to manage the Access application yourself.",
+      const allowed = yield* requireAllowedIdentities(
+        "Set ACCESS_ALLOWED_EMAILS to the comma-separated emails (and/or ACCESS_ALLOWED_EMAIL_DOMAINS to whole email domains) allowed through Cloudflare Access — or set TEAM_DOMAIN and POLICY_AUD to manage the Access application yourself.",
       );
       const application = yield* emailAccessGate({
         policyId: "SelfHostAllowUsers",
@@ -282,7 +337,8 @@ const resolveSelfHostAccess = (
         applicationName: `open-seo ${stage}`,
         domain: `${workerName(stage)}.${subdomain}`,
         extraDomain: customDomain || undefined,
-        emails: allowedEmails,
+        emails: allowed.emails,
+        emailDomains: allowed.emailDomains,
         managedOAuth: true,
       });
       policyAud = application.aud;
@@ -386,6 +442,9 @@ export default Alchemy.Stack(
     }
     const workersSubdomain = yield* readWorkersSubdomain({ required: false });
     const customDomain = yield* readCustomDomain(prod);
+    const customDomainZoneId = yield* readCustomDomainZoneId();
+    const disableWorkersDevUrl =
+      (yield* optionalVar("DISABLE_WORKERS_DEV_URL")) === "1";
 
     // Auth needs an absolute BETTER_AUTH_URL. Prod sets it explicitly;
     // previews always derive it from the deterministic worker name — a wrong
@@ -518,9 +577,12 @@ export default Alchemy.Stack(
     const app = yield* Cloudflare.Worker("open-seo", {
       name: workerName(stage),
       // Prod serves the real domains; the zone is inferred from the hostname.
-      domain: prod
-        ? ["app.openseo.so", "www.app.openseo.so"]
-        : customDomain || undefined,
+      ...workerHostnames({
+        prod,
+        customDomain,
+        customDomainZoneId,
+        disableWorkersDevUrl,
+      }),
       // Prebuilt worker from `vite build` (@cloudflare/vite-plugin). The entry
       // exports the DO + WorkflowEntrypoint classes (re-exported by
       // src/server.ts), which `bundle: false` requires. Sibling chunks under
