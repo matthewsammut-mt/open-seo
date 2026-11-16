@@ -18,6 +18,8 @@ type Props = {
   totalCount: number | null;
   fallbackCount: number;
   onExport: (format: ExportFormat) => void;
+  /** Shows the export trigger busy while the full-table export is fetched. */
+  exporting?: boolean;
   filterPanel: ReactNode;
   children?: ReactNode;
 };
@@ -32,6 +34,7 @@ export function DomainTableToolbar({
   totalCount,
   fallbackCount,
   onExport,
+  exporting = false,
   filterPanel,
   children,
 }: Props) {
@@ -42,6 +45,7 @@ export function DomainTableToolbar({
           <ExportMenu
             actions={["sheets", "copy-json", "csv", "excel"]}
             onExport={onExport}
+            busy={exporting}
           />
         }
       >

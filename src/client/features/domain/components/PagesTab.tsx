@@ -12,6 +12,7 @@ import {
   countPageFilterConditions,
 } from "@/client/features/domain/domainFilterUtils";
 import { useDomainPagesQuery } from "@/client/features/domain/hooks/useDomainPagesQuery";
+import { useDomainPagesExport } from "@/client/features/domain/hooks/useDomainPagesExport";
 import { useDomainPageFilterPreferences } from "@/client/features/domain/useDomainFilterPreferences";
 import {
   EMPTY_DOMAIN_FILTERS,
@@ -19,9 +20,8 @@ import {
   type PageRow,
   type PagesFilterValues,
 } from "@/client/features/domain/types";
-import { pagesToTable } from "@/client/features/domain/utils";
 import type { DomainOverviewRouteState } from "@/client/features/domain/domainRouteState";
-import { exportRows, type ExportFormat } from "@/client/lib/exportRows";
+import type { ExportFormat } from "@/client/lib/exportRows";
 import {
   DOMAIN_KEYWORDS_PAGE_SIZES,
   MAX_DATAFORSEO_FILTER_CONDITIONS,
@@ -112,7 +112,9 @@ export function PagesTab({
     ? EMPTY_DOMAIN_FILTERS
     : restoredFilters;
 
-  const query = useDomainPagesQuery({
+  // One input object drives the table query and the export, so the export can
+  // never be built from different filters than the rows on screen.
+  const queryInput = {
     projectId,
     domain: target,
     scope,
@@ -123,7 +125,8 @@ export function PagesTab({
     sortOrder: routeState.order,
     appliedFilters: appliedPagesFilters,
     enabled: Boolean(target),
-  });
+  };
+  const query = useDomainPagesQuery(queryInput);
 
   const rows = query.data?.pages ?? EMPTY_PAGES_ROWS;
   const totalCount = query.data?.totalCount ?? null;
@@ -150,17 +153,15 @@ export function PagesTab({
     [restoredFilters],
   );
 
-  const exportTable = useMemo(() => pagesToTable(rows), [rows]);
   const fileNamePrefix = target.replaceAll("/", "-");
 
-  const exportAll = (format: ExportFormat) =>
-    void exportRows({
-      format,
-      feature: "domain_overview",
-      ...exportTable,
-      filename: `${fileNamePrefix}-pages`,
-      records: rows,
-    });
+  // "Export all" means every matching page, so it refetches server-side rather
+  // than exporting `rows` (the visible page of results).
+  const { exportAll: runExportAll, exporting } = useDomainPagesExport({
+    queryInput,
+    filenamePrefix: fileNamePrefix,
+  });
+  const exportAll = (format: ExportFormat) => void runExportAll(format);
 
   return (
     <DomainPagesTable
@@ -194,6 +195,7 @@ export function PagesTab({
             totalCount={totalCount}
             fallbackCount={rows.length}
             onExport={exportAll}
+            exporting={exporting !== null}
             filterPanel={
               <DomainFilterPanel
                 activeFilterCount={activeFilterCount}

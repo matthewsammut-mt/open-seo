@@ -3,12 +3,16 @@ import { useQuery, type QueryKey } from "@tanstack/react-query";
 import type {
   BacklinksPageProps,
   BacklinksSearchState,
+  BacklinksTabRows,
 } from "./backlinksPageTypes";
 import {
   getErrorCode,
   getStandardErrorMessage,
 } from "@/client/lib/error-messages";
 import {
+  exportBacklinksReferringDomains,
+  exportBacklinksRows,
+  exportBacklinksTopPages,
   getBacklinksOverview,
   getBacklinksReferringDomains,
   getBacklinksRows,
@@ -236,10 +240,70 @@ export function useBacklinksPageData({
     activeTabFilterError ??
     getBacklinksErrorMessage(activeTabQuery.error, "Could not load this tab.");
 
+  /**
+   * Every row behind the active tab, for export — fetched on demand with the
+   * same filters, sort and scope the tab's own query uses, so an export can
+   * never disagree with the table it came from. Returns tab-shaped rows so the
+   * caller feeds `buildBacklinksTabExport` without casting.
+   */
+  const exportActiveTabRows = async (): Promise<{
+    rows: BacklinksTabRows;
+    truncated: boolean;
+  }> => {
+    const empty: BacklinksTabRows = {
+      backlinks: [],
+      referringDomains: [],
+      topPages: [],
+    };
+    if (tab === "backlinks") {
+      const result = await exportBacklinksRows({
+        data: {
+          ...pageInputBase,
+          sortField: rowsSort.field,
+          sortOrder: rowsSort.order,
+          filters: rowsFilters,
+          mode: rowsMode,
+          hideSpam: !searchState.includeSpam,
+        },
+      });
+      return {
+        rows: { ...empty, backlinks: result.rows },
+        truncated: result.truncated,
+      };
+    }
+    if (tab === "domains") {
+      const result = await exportBacklinksReferringDomains({
+        data: {
+          ...pageInputBase,
+          sortField: domainsSort.field,
+          sortOrder: domainsSort.order,
+          filters: domainsFilters,
+        },
+      });
+      return {
+        rows: { ...empty, referringDomains: result.rows },
+        truncated: result.truncated,
+      };
+    }
+    const result = await exportBacklinksTopPages({
+      data: {
+        ...pageInputBase,
+        sortField: pagesSort.field,
+        sortOrder: pagesSort.order,
+        filters: pagesFilters,
+      },
+    });
+    return {
+      rows: { ...empty, topPages: result.rows },
+      truncated: result.truncated,
+    };
+  };
+
   return {
     activeTabErrorMessage,
     activeTabFilterError,
     activeTabQuery,
+    exportActiveTabRows,
     overviewErrorMessage,
     overviewQuery,
     referringDomainsQuery,

@@ -7,7 +7,7 @@ import type {
   SortOrder,
 } from "@/client/features/domain/types";
 
-type DomainKeywordsQueryInput = {
+export type DomainKeywordsQueryInput = {
   projectId: string;
   domain: string;
   scope: ResearchScope;
@@ -46,8 +46,27 @@ function toFiltersPayload(
   };
 }
 
+/**
+ * The server payload for one keywords request. The export path sends this
+ * same object (overriding only page/pageSize), so a table and its export can
+ * never disagree about filters, scope or sort.
+ */
+export function domainKeywordsPayload(input: DomainKeywordsQueryInput) {
+  return {
+    projectId: input.projectId,
+    domain: input.domain,
+    scope: input.scope,
+    locationCode: input.locationCode,
+    page: input.page,
+    pageSize: input.pageSize,
+    sortMode: input.sortMode,
+    sortOrder: input.sortOrder,
+    filters: toFiltersPayload(input.appliedFilters),
+  };
+}
+
 export function useDomainKeywordsQuery(input: DomainKeywordsQueryInput) {
-  const filtersPayload = toFiltersPayload(input.appliedFilters);
+  const payload = domainKeywordsPayload(input);
   return useQuery({
     enabled: input.enabled && Boolean(input.domain),
     queryKey: [
@@ -60,22 +79,9 @@ export function useDomainKeywordsQuery(input: DomainKeywordsQueryInput) {
       input.pageSize,
       input.sortMode,
       input.sortOrder,
-      filtersPayload,
+      payload.filters,
     ],
-    queryFn: () =>
-      getDomainKeywordsPage({
-        data: {
-          projectId: input.projectId,
-          domain: input.domain,
-          scope: input.scope,
-          locationCode: input.locationCode,
-          page: input.page,
-          pageSize: input.pageSize,
-          sortMode: input.sortMode,
-          sortOrder: input.sortOrder,
-          filters: filtersPayload,
-        },
-      }),
+    queryFn: () => getDomainKeywordsPage({ data: payload }),
     staleTime: 60_000,
   });
 }

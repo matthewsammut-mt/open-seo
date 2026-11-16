@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { List, Rows3 } from "lucide-react";
 import type { OnChangeFn, SortingState } from "@tanstack/react-table";
 import { BacklinksFilterPanel } from "./BacklinksFilterPanel";
@@ -32,7 +32,9 @@ import {
   DataTableToolbar,
 } from "@/client/components/table/DataTableToolbar";
 import { TabsTrigger } from "@/client/components/ui/tabs";
-import { exportRows } from "@/client/lib/exportRows";
+import { exportRows, type ExportFormat } from "@/client/lib/exportRows";
+import { getStandardErrorMessage } from "@/client/lib/error-messages";
+import { toast } from "sonner";
 
 const BACKLINKS_RESULTS_TABS: Array<{
   tab: BacklinksSearchState["tab"];
@@ -62,6 +64,7 @@ export function BacklinksResultsCard({
   onRetryTab,
   isTabRetrying,
   exportTarget,
+  exportActiveTabRows,
   pagination,
   onPageChange,
   onPageSizeChange,
@@ -87,6 +90,11 @@ export function BacklinksResultsCard({
   onRetryTab?: () => void;
   isTabRetrying: boolean;
   exportTarget: string;
+  /** Fetches every row behind the active tab, for a full-table export. */
+  exportActiveTabRows: () => Promise<{
+    rows: BacklinksTabRows;
+    truncated: boolean;
+  }>;
   pagination: {
     page: number;
     pageSize: number;
@@ -106,11 +114,39 @@ export function BacklinksResultsCard({
     loadRatings,
   } = useAhrefsDomainRatings(projectId);
   const activeFilterCount = filters[activeTab].activeFilterCount;
+  // Drives the Export button's disabled state only: whether this tab has
+  // anything to export is answered by the rows already on screen.
   const exportTable = useMemo(
     () =>
       buildBacklinksTabExport({ tab: activeTab, rows: tabRows, domainRatings }),
     [activeTab, domainRatings, tabRows],
   );
+
+  const [exporting, setExporting] = useState(false);
+  // Exports every matching row, not the visible page, so the file is fetched
+  // on demand and built from the same columns the table shows.
+  const runExport = async (format: ExportFormat) => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { rows, truncated } = await exportActiveTabRows();
+      if (truncated) {
+        toast.warning(
+          "Exported the first 4,000 rows. Narrow the filters to export the rest.",
+        );
+      }
+      await exportRows({
+        format,
+        feature: `backlinks_${activeTab}`,
+        ...buildBacklinksTabExport({ tab: activeTab, rows, domainRatings }),
+        filename: buildBacklinksTabFilename(activeTab, exportTarget),
+      });
+    } catch (error) {
+      toast.error(getStandardErrorMessage(error, "Could not export"));
+    } finally {
+      setExporting(false);
+    }
+  };
   // Domains keyed by both tables that the DR column can enrich. Each table
   // holds the currently loaded page, so this changes as the user paginates.
   const ratableDomains = useMemo(
@@ -171,19 +207,10 @@ export function BacklinksResultsCard({
             <>
               <ExportMenu
                 actions={["sheets", "csv"]}
-                scopes={[{ id: "page", label: "Current page · selected view" }]}
+                scopes={[{ id: "all", label: "All rows · selected view" }]}
                 disabled={exportTable.rows.length === 0}
-                onExport={(format) =>
-                  void exportRows({
-                    format,
-                    feature: `backlinks_${activeTab}`,
-                    ...exportTable,
-                    filename: buildBacklinksTabFilename(
-                      activeTab,
-                      exportTarget,
-                    ),
-                  })
-                }
+                busy={exporting}
+                onExport={(format) => void runExport(format)}
               />
               {activeTab !== "pages" ? (
                 <BacklinksActionsMenu

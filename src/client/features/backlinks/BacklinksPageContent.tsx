@@ -193,6 +193,7 @@ export function BacklinksBody({
             }
             isTabRetrying={data.activeTabQuery.isFetching}
             exportTarget={overviewData.displayTarget || searchState.target}
+            exportActiveTabRows={data.exportActiveTabRows}
             pagination={{
               page: searchState.page,
               pageSize: searchState.pageSize,

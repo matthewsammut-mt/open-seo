@@ -25,6 +25,7 @@ import {
   countKeywordFilterConditions,
 } from "@/client/features/domain/domainFilterUtils";
 import { useDomainKeywordsQuery } from "@/client/features/domain/hooks/useDomainKeywordsQuery";
+import { useDomainKeywordsExport } from "@/client/features/domain/hooks/useDomainKeywordsExport";
 import { useSaveKeywordsMutation } from "@/client/features/domain/mutations";
 import { useDomainKeywordFilterPreferences } from "@/client/features/domain/useDomainFilterPreferences";
 import {
@@ -128,7 +129,9 @@ export function KeywordsTab({
     ? EMPTY_DOMAIN_FILTERS
     : restoredFilters;
 
-  const query = useDomainKeywordsQuery({
+  // One input object drives the table query and the export, so the export can
+  // never be built from different filters than the rows on screen.
+  const queryInput = {
     projectId,
     domain: target,
     scope,
@@ -139,7 +142,8 @@ export function KeywordsTab({
     sortOrder: routeState.order,
     appliedFilters,
     enabled: Boolean(target),
-  });
+  };
+  const query = useDomainKeywordsQuery(queryInput);
 
   const rows = query.data?.keywords ?? EMPTY_KEYWORDS;
   const totalCount = query.data?.totalCount ?? null;
@@ -204,21 +208,19 @@ export function KeywordsTab({
     [restoredFilters],
   );
 
-  const exportTable = useMemo(() => keywordsToTable(rows), [rows]);
   const fileNamePrefix = target.replaceAll("/", "-");
   const selectedExportTable = useMemo(
     () => keywordsToTable(rows.filter((r) => selectedKeywords.has(r.keyword))),
     [rows, selectedKeywords],
   );
 
-  const exportAll = (format: ExportFormat) =>
-    void exportRows({
-      format,
-      feature: "domain_overview",
-      ...exportTable,
-      filename: `${fileNamePrefix}-keywords`,
-      records: rows,
-    });
+  // "Export all" means every matching keyword, so it refetches server-side
+  // rather than exporting `rows` (the visible page).
+  const { exportAll: runExportAll, exporting } = useDomainKeywordsExport({
+    queryInput,
+    filenamePrefix: fileNamePrefix,
+  });
+  const exportAll = (format: ExportFormat) => void runExportAll(format);
   const exportSelection = (format: ExportFormat) =>
     void exportRows({
       format,
@@ -294,6 +296,7 @@ export function KeywordsTab({
               totalCount={totalCount}
               fallbackCount={rows.length}
               onExport={exportAll}
+              exporting={exporting !== null}
               filterPanel={
                 <DomainFilterPanel
                   activeFilterCount={activeFilterCount}
